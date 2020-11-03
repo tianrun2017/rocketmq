@@ -184,6 +184,8 @@ public abstract class NettyRemotingAbstract {
 
 
     /**
+     * 该方法比较简单，该方法其实就是一个具体命令的处理模板（模板方法），
+     * 具体的命令实现由各个子类实现，该类的主要责任就是将命令封装成一个线程对象，然后丢到线程池去执行。
      * Process incoming request command issued by remote peer.
      *
      * @param ctx channel handler context.
@@ -447,6 +449,9 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
+    /**
+     * 异步调用
+     */
     public void invokeAsyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis,
         final InvokeCallback invokeCallback)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
@@ -528,6 +533,11 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
+    /**
+     * 单向（Oneway）发送特点为只负责发送消息，不等待服务器回应且没有回调函数触发，即只发送请求不等待应答。
+     *
+     * 应用场景：适用于某些耗时非常短，但对可靠性要求并不高的场景，例如日志收集。
+     */
     public void invokeOnewayImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         request.markOnewayRPC();

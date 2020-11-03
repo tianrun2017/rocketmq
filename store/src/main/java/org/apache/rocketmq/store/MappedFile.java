@@ -42,26 +42,39 @@ import org.apache.rocketmq.store.util.LibC;
 import sun.nio.ch.DirectBuffer;
 
 public class MappedFile extends ReferenceResource {
+    //OSpage大小，4K
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    //类变量，所有 MappedFile 实例已使用字节总数
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
-
+    //MappedFile 个数
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    //当前MappedFile对象当前写指针
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
+    //当前提交的指针
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    //当前刷写到磁盘的指针
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
+    //文件总大小
     protected int fileSize;
+    //文件通道
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
+     * 如果开启了transientStorePoolEnable，消息会写入堆外内存，然后提交到 PageCache 并最终刷写到磁盘。
      */
     protected ByteBuffer writeBuffer = null;
+    //ByteBuffer的缓冲池，堆外内存，transientStorePoolEnable 为 true 时生效。
     protected TransientStorePool transientStorePool = null;
+    //文件名称
     private String fileName;
+    //文件序号,代表该文件代表的文件偏移量
     private long fileFromOffset;
+    //文件对象
     private File file;
+    //对应操作系统的 PageCache
     private MappedByteBuffer mappedByteBuffer;
+    //最后一次存储时间戳
     private volatile long storeTimestamp = 0;
     private boolean firstCreateInQueue = false;
 
@@ -148,6 +161,9 @@ public class MappedFile extends ReferenceResource {
         this.transientStorePool = transientStorePool;
     }
 
+    /**
+     * 初始化 FileChannel、mappedByteBuffer 等
+     */
     private void init(final String fileName, final int fileSize) throws IOException {
         this.fileName = fileName;
         this.fileSize = fileSize;
@@ -196,10 +212,14 @@ public class MappedFile extends ReferenceResource {
         return appendMessagesInner(messageExtBatch, cb);
     }
 
+    /**
+     * 消息写入
+     */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
 
+        //获取消息写入位置
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
@@ -207,12 +227,15 @@ public class MappedFile extends ReferenceResource {
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             if (messageExt instanceof MessageExtBrokerInner) {
+                //单条消息
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             } else if (messageExt instanceof MessageExtBatch) {
+                //批量消息
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            //写入
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;

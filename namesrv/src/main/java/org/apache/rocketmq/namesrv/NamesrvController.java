@@ -38,23 +38,60 @@ import org.apache.rocketmq.remoting.netty.NettyServerConfig;
 import org.apache.rocketmq.remoting.netty.TlsSystemConfig;
 import org.apache.rocketmq.srvutil.FileWatchService;
 
-
+/**
+ * nameServer 模块的核心控制类
+ */
 public class NamesrvController {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
+    /**
+     *  nameServer 的相关配置属性
+     */
     private final NamesrvConfig namesrvConfig;
 
+    /**
+     * NettyServerConfig、RemotingServer 、ExecutorService
+     * 这三个属性与网络通信有关，NameServer 与 Broker、Producer、Consume 之间的网络通信，基于 Netty实现
+     */
     private final NettyServerConfig nettyServerConfig;
 
+    /**
+     * NameServer 定时任务执行线程池，默认定时执行两个任务：
+     * 任务1、每隔 10s 扫描 broker ,维护当前存活的Broker信息。
+     * 任务2、每隔 10s 打印KVConfig 信息。
+     */
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "NSScheduledThread"));
+
+    /**
+     * 读取或变更NameServer的配置属性，加载 NamesrvConfig 中配置的配置文件到内存，
+     * 此类一个亮点就是使用轻量级的非线程安全容器，再结合读写锁对资源读写进行保护。
+     * 尽最大程度提高线程的并发度。
+     */
     private final KVConfigManager kvConfigManager;
+
+    /**
+     * NameServer 数据的载体，记录 Broker、Topic 等信息。
+     */
     private final RouteInfoManager routeInfoManager;
 
+    /**
+     * NettyServerConfig、RemotingServer 、ExecutorService
+     * 这三个属性与网络通信有关，NameServer 与 Broker、Producer、Consume 之间的网络通信，基于 Netty实现
+     */
     private RemotingServer remotingServer;
 
+    /**
+     * BrokerHouseKeepingService 实现 ChannelEventListener接口，
+     * 可以说是通道在发送异常时的回调方法（Nameserver与 Broker的连接通道在关闭、通道发送异常、通道空闲时），
+     * 在上述数据结构中移除已宕机的 Broker。
+     */
     private BrokerHousekeepingService brokerHousekeepingService;
 
+    /**
+     * NettyServerConfig、RemotingServer 、ExecutorService
+     * 这三个属性与网络通信有关，NameServer 与 Broker、Producer、Consume 之间的网络通信，基于 Netty实现
+     */
     private ExecutorService remotingExecutor;
 
     private Configuration configuration;
@@ -79,11 +116,14 @@ public class NamesrvController {
 
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        //创建一个线程容量为 serverWorkerThreads 的固定长度的线程池，该线程池供 DefaultRequestProcessor 类使用，实现具体的默认的请求命令处理。
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        //将DefaultRequestProcessor与remotingServer线程池绑定在一起
         this.registerProcessor();
 
+        //任务1、每隔 10s 扫描 broker ,维护当前存活的Broker信息。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -92,6 +132,7 @@ public class NamesrvController {
             }
         }, 5, 10, TimeUnit.SECONDS);
 
+        //任务2、每隔 10s 打印KVConfig 信息。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -141,6 +182,9 @@ public class NamesrvController {
         return true;
     }
 
+    /**
+     * 将 DefaultRequestProcessor与remotingServer线程池绑定在一起
+     */
     private void registerProcessor() {
         if (namesrvConfig.isClusterTest()) {
 
